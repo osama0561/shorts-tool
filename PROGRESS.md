@@ -195,6 +195,15 @@ local `faster-whisper` for Arabic ASR.
    - Extend `main.py` to let Phase 2 run against an existing
      `video_id`.
 
+## Revisit later
+
+- **Hyperframes** (`https://github.com/heygen-com/hyperframes`) — HTML
+  → MP4 renderer. If the ASS subtitle burn-in in Phase 3 produces poor
+  Arabic output (kashida spacing, word-level highlighting, diacritics),
+  rewrite stages 5 (captions) and 6 (logo overlay) on top of
+  Hyperframes. Decision: do not adopt before Phase 3 has run end-to-end
+  on real Arabic content.
+
 ## Useful facts
 
 - Project root: `/home/nahrai/shorts-tool`

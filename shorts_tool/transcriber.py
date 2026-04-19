@@ -18,6 +18,7 @@ Pipeline:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import time
@@ -25,6 +26,13 @@ from pathlib import Path
 from typing import TypedDict
 
 from faster_whisper import WhisperModel
+
+
+logger = logging.getLogger("shorts.transcriber")
+
+# Every ffmpeg invocation on the VPS is prefixed with these so the box
+# stays responsive for other tenants. See CLAUDE.md.
+_FFMPEG_NICE_PREFIX = ["nice", "-n", "10", "ionice", "-c", "3"]
 
 
 class WordTiming(TypedDict):
@@ -47,6 +55,7 @@ def _extract_audio(video_path: Path, out_path: Path) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [
+            *_FFMPEG_NICE_PREFIX,
             "ffmpeg", "-y",
             "-i", str(video_path),
             "-vn",                 # drop video
@@ -89,18 +98,18 @@ def transcribe(
 
     working_dir.mkdir(parents=True, exist_ok=True)
     audio_path = working_dir / f"{video_path.stem}.wav"
-    print(f"[transcribe] Extracting audio → {audio_path.name}")
+    logger.info("Extracting audio → %s", audio_path.name)
     _extract_audio(video_path, audio_path)
 
-    print(
-        f"[transcribe] Loading Whisper model '{model_name}' "
-        f"(device={device}, compute_type={compute_type})"
+    logger.info(
+        "Loading Whisper model '%s' (device=%s, compute_type=%s)",
+        model_name, device, compute_type,
     )
     load_start = time.time()
     model = WhisperModel(model_name, device=device, compute_type=compute_type)
-    print(f"[transcribe] Model loaded in {time.time() - load_start:.1f}s")
+    logger.info("Model loaded in %.1fs", time.time() - load_start)
 
-    print(f"[transcribe] Transcribing (language={language})…")
+    logger.info("Transcribing (language=%s)…", language)
     transcribe_start = time.time()
     segments, info = model.transcribe(
         str(audio_path),
@@ -134,13 +143,14 @@ def transcribe(
         # Log progress every ~30 s of audio decoded so the user sees activity.
         if seg.end - last_progress > 30:
             last_progress = seg.end
-            print(f"[transcribe]   …{seg.end:6.1f}s decoded "
-                  f"({len(words)} words so far)")
+            logger.info("  …%.1fs decoded (%d words so far)",
+                        seg.end, len(words))
 
     elapsed = time.time() - transcribe_start
-    print(f"[transcribe] Done in {elapsed:.1f}s "
-          f"(audio duration {info.duration:.1f}s, "
-          f"speed {info.duration / elapsed:.2f}× realtime)")
+    logger.info(
+        "Done in %.1fs (audio duration %.1fs, speed %.2fx realtime)",
+        elapsed, info.duration, info.duration / elapsed,
+    )
 
     transcript = {
         "language": language,
@@ -156,5 +166,5 @@ def transcribe(
         json.dumps(transcript, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    print(f"[transcribe] Saved {len(words)} words → {json_path}")
+    logger.info("Saved %d words → %s", len(words), json_path)
     return json_path, transcript

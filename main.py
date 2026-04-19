@@ -1,53 +1,93 @@
 """CLI entrypoint.
 
 Usage:
-    python main.py <youtube_url>
+    python main.py <youtube_url-or-local-path>
 
 Phase 1 behaviour:
-    1. Load config from `.env` and create the SQLite schema if needed.
-    2. Download the YouTube video with yt-dlp into /inputs
-       (cookies may be required — see .env).
-    3. Transcribe it locally with Whisper (Arabic, word-level timestamps).
-    4. Write the transcript JSON to /working and record in SQLite.
+    1. Load config from `.env`, set up logging, create the SQLite schema.
+    2. Check disk space and abort if <5 GB free.
+    3. Ingest the source video:
+         - URL  → yt-dlp download into /inputs
+         - path → validate + register (no download)
+    4. Transcribe it locally with Whisper (Arabic, word-level timestamps).
+    5. Write the transcript JSON to /working and record in SQLite.
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
+import shutil
 import sys
+from pathlib import Path
 
-from shorts_tool.config import load_config
+from shorts_tool.config import PROJECT_ROOT, load_config
 from shorts_tool.db import init_db, insert_transcript, set_video_status, upsert_video
 from shorts_tool.downloader import download
+from shorts_tool.importer import import_local
+from shorts_tool.logging_setup import configure_logging
 from shorts_tool.transcriber import transcribe
+
+
+MIN_FREE_BYTES = 5 * 1024 * 1024 * 1024  # 5 GB
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Turn a long YouTube video into Arabic vertical shorts."
+        description="Turn a long Arabic video into vertical shorts."
     )
-    p.add_argument("url", help="YouTube URL to process")
+    p.add_argument(
+        "source",
+        help="YouTube URL, or path to a local video file already on disk",
+    )
     return p.parse_args(argv)
 
 
-def run(youtube_url: str) -> int:
+def _guard_disk_space(log: logging.Logger) -> None:
+    """Abort the run if free disk space falls below MIN_FREE_BYTES."""
+    free = shutil.disk_usage(PROJECT_ROOT).free
+    free_gb = free / (1024 ** 3)
+    if free < MIN_FREE_BYTES:
+        raise RuntimeError(
+            f"Aborting: only {free_gb:.1f} GB free at {PROJECT_ROOT} "
+            f"(need >= {MIN_FREE_BYTES / 1024 ** 3:.0f} GB). "
+            f"Run scripts/cleanup.sh or free space before retrying."
+        )
+    log.info("Disk guard OK: %.1f GB free", free_gb)
+
+
+def _is_url(source: str) -> bool:
+    return source.startswith(("http://", "https://"))
+
+
+def run(source: str) -> int:
     cfg = load_config()
     cfg.ensure_dirs()
+    log = configure_logging(PROJECT_ROOT / "logs")
     init_db(cfg.db_path)
 
-    # ---------- 1. Download ----------
-    print(f"[main] Downloading {youtube_url}")
-    dl = download(
-        youtube_url,
-        cfg.inputs_dir,
-        cookies_file=cfg.cookies_file,
-        cookies_from_browser=cfg.cookies_from_browser,
-    )
-    print(f"[main] Downloaded '{dl.title}' ({dl.duration_sec:.0f}s) → {dl.path}")
+    _guard_disk_space(log)
+
+    # ---------- 1. Ingest ----------
+    if _is_url(source):
+        log.info("Downloading %s", source)
+        dl = download(
+            source,
+            cfg.inputs_dir,
+            cookies_file=cfg.cookies_file,
+            cookies_from_browser=cfg.cookies_from_browser,
+        )
+        log.info("Downloaded '%s' (%.0fs) → %s", dl.title, dl.duration_sec, dl.path)
+        source_url = source
+    else:
+        dl = import_local(Path(source))
+        log.info("Imported local '%s' (%.0fs) → %s",
+                 dl.title, dl.duration_sec, dl.path)
+        source_url = f"file://{dl.path}"
 
     video_id = upsert_video(
         cfg.db_path,
-        youtube_url=youtube_url,
+        youtube_url=source_url,
         youtube_id=dl.youtube_id,
         title=dl.title,
         duration_sec=dl.duration_sec,
@@ -73,29 +113,27 @@ def run(youtube_url: str) -> int:
 
     # ---------- 3. Summary ----------
     words = transcript["words"]
-    print("\n" + "=" * 60)
-    print(f"  Video id:    {video_id}")
-    print(f"  YouTube id:  {dl.youtube_id}")
-    print(f"  Title:       {dl.title}")
-    print(f"  Duration:    {dl.duration_sec:.1f}s")
-    print(f"  Model:       {transcript['model']}")
-    print(f"  Words:       {len(words)}")
-    print(f"  Transcript:  {json_path}")
-    print(f"  Cost:        $0.00 (Whisper runs locally)")
+    log.info("=" * 60)
+    log.info("Video id:   %d", video_id)
+    log.info("Source id:  %s", dl.youtube_id)
+    log.info("Title:      %s", dl.title)
+    log.info("Duration:   %.1fs", dl.duration_sec)
+    log.info("Model:      %s", transcript["model"])
+    log.info("Words:      %d", len(words))
+    log.info("Transcript: %s", json_path)
+    log.info("=" * 60)
     if words:
-        print("\n  First 15 words:")
-        for w in words[:15]:
-            print(f"    [{w['start']:7.2f} → {w['end']:7.2f}]  {w['word']}")
-    print("=" * 60)
+        preview = " ".join(w["word"] for w in words[:15])
+        log.info("First 15 words: %s", preview)
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     try:
-        return run(args.url)
+        return run(args.source)
     except KeyboardInterrupt:
-        print("\n[main] Interrupted")
+        logging.getLogger("shorts").warning("Interrupted by user")
         return 130
 
 
