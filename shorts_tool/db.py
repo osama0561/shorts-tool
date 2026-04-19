@@ -145,3 +145,93 @@ def insert_transcript(
             (video_id, language, model, json_path, word_count),
         )
         return int(cur.lastrowid)
+
+
+def latest_transcript(db_path: Path, video_id: int) -> sqlite3.Row | None:
+    """Return the most recent transcript row for a video, or None."""
+    with connect(db_path) as conn:
+        return conn.execute(
+            """SELECT * FROM transcripts
+               WHERE video_id = ?
+               ORDER BY id DESC LIMIT 1""",
+            (video_id,),
+        ).fetchone()
+
+
+def get_video(db_path: Path, video_id: int) -> sqlite3.Row | None:
+    """Return a video row by id, or None."""
+    with connect(db_path) as conn:
+        return conn.execute(
+            "SELECT * FROM videos WHERE id = ?", (video_id,)
+        ).fetchone()
+
+
+# ---------- Clips ----------
+
+def insert_clip(
+    db_path: Path,
+    *,
+    video_id: int,
+    idx: int,
+    start_sec: float,
+    end_sec: float,
+    hook_summary: str | None,
+) -> int:
+    """Insert a planned clip; idempotent per (video_id, idx)."""
+    with connect(db_path) as conn:
+        conn.execute(
+            """INSERT INTO clips (video_id, idx, start_sec, end_sec, hook_summary)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(video_id, idx) DO UPDATE SET
+                   start_sec = excluded.start_sec,
+                   end_sec = excluded.end_sec,
+                   hook_summary = excluded.hook_summary""",
+            (video_id, idx, start_sec, end_sec, hook_summary),
+        )
+        row = conn.execute(
+            "SELECT id FROM clips WHERE video_id = ? AND idx = ?",
+            (video_id, idx),
+        ).fetchone()
+        return int(row["id"])
+
+
+def update_clip_paths(
+    db_path: Path,
+    clip_id: int,
+    *,
+    raw_path: str | None = None,
+    captioned_path: str | None = None,
+    final_path: str | None = None,
+    status: str | None = None,
+) -> None:
+    """Update any subset of a clip's output paths and/or status."""
+    sets: list[str] = []
+    params: list = []
+    if raw_path is not None:
+        sets.append("raw_path = ?"); params.append(raw_path)
+    if captioned_path is not None:
+        sets.append("captioned_path = ?"); params.append(captioned_path)
+    if final_path is not None:
+        sets.append("final_path = ?"); params.append(final_path)
+    if status is not None:
+        sets.append("status = ?"); params.append(status)
+    if not sets:
+        return
+    params.append(clip_id)
+    with connect(db_path) as conn:
+        conn.execute(f"UPDATE clips SET {', '.join(sets)} WHERE id = ?", params)
+
+
+def list_clips(db_path: Path, video_id: int) -> list[sqlite3.Row]:
+    """Return all clips for a video, ordered by idx."""
+    with connect(db_path) as conn:
+        return list(conn.execute(
+            "SELECT * FROM clips WHERE video_id = ? ORDER BY idx", (video_id,)
+        ).fetchall())
+
+
+def clear_clips(db_path: Path, video_id: int) -> int:
+    """Delete all clip rows for a video; returns count deleted."""
+    with connect(db_path) as conn:
+        cur = conn.execute("DELETE FROM clips WHERE video_id = ?", (video_id,))
+        return cur.rowcount
