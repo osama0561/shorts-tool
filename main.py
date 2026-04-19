@@ -40,6 +40,17 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "source",
         help="YouTube URL, or path to a local video file already on disk",
     )
+    p.add_argument(
+        "--full",
+        action="store_true",
+        help="After transcription, also run Phase 2-4 (clip + cut + caption)",
+    )
+    p.add_argument(
+        "--clips",
+        type=int,
+        default=10,
+        help="Target clip count when --full is set (default 10)",
+    )
     return p.parse_args(argv)
 
 
@@ -60,7 +71,7 @@ def _is_url(source: str) -> bool:
     return source.startswith(("http://", "https://"))
 
 
-def run(source: str) -> int:
+def run(source: str, full: bool = False, clips: int = 10) -> int:
     cfg = load_config()
     cfg.ensure_dirs()
     log = configure_logging(PROJECT_ROOT / "logs")
@@ -125,13 +136,19 @@ def run(source: str) -> int:
     if words:
         preview = " ".join(w["word"] for w in words[:15])
         log.info("First 15 words: %s", preview)
+
+    if full:
+        # Import here so Phase 1-only runs don't pay the Gemini SDK cost.
+        from process import run as process_run
+        log.info("--full set; continuing into Phase 2-4")
+        return process_run(video_id, clips)
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     try:
-        return run(args.source)
+        return run(args.source, full=args.full, clips=args.clips)
     except KeyboardInterrupt:
         logging.getLogger("shorts").warning("Interrupted by user")
         return 130
