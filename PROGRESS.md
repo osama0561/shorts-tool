@@ -8,6 +8,68 @@ local `faster-whisper` for Arabic ASR.
 
 ## Session log
 
+### 2026-04-19 (evening) — GitHub + YouTube auth + input pipeline
+
+**What we did**
+
+- Published repo to GitHub: `osama0561/shorts-tool` (public). Had to
+  expand the fine-grained PAT's repo-selection to "All repositories"
+  and grant `Contents: Read and write` before `git push` worked.
+  Cleaned the token out of `.git/config` (remote URL is tokenless;
+  pushes use the inline `https://oauth2:$TOKEN@...` form).
+- **YouTube download dead end on this VPS.** The VPS IP is bot-flagged
+  by YouTube. Tried three bypasses:
+  1. `yt-dlp-youtube-oauth2` plugin — **broken.** Google's device-code
+     endpoint now returns HTTP 400 before the plugin can poll. Do not
+     waste time on it again. Uninstalled.
+  2. BgUtils PO token provider (`bgutil-ytdlp-pot-provider`) — **works
+     on big popular videos** (verified against a Rickroll). **Does not
+     bypass the bot-flag on smaller channels** like the user's — all
+     player clients still return `LOGIN_REQUIRED` even with a valid
+     PO token. Kept installed anyway; useful for public mainstream
+     videos and costs us nothing.
+  3. Confirmed via incognito-browser test on the user's own public
+     video (`WubpUUMoaUo`) that the block is purely IP-flag, not
+     a video-level restriction.
+- **Input decision: skip YouTube download entirely.** Files come in
+  via Google Drive → `gdown` → `inputs/youtube/`. The user drops the
+  source video in a Drive folder; we pull it. This is also what
+  commercial tools like Opus Clip actually do (upload-your-own-file).
+  No cookies, no proxies, no maintenance. Full quality (user's
+  original upload, not YouTube's re-encode).
+- Downloaded the first real test video:
+  `inputs/youtube/linkedin_no_silence.mp4` — 1920×1080, H264, 19m 28s,
+  318 MB. Cut a 30-sec sample to `test_data/sample_linkedin_30s.mp4`
+  for the Phase 1 smoke test.
+- Created `scripts/setup_pot_provider.sh` to reproduce the BgUtils
+  setup in `vendor/` from scratch (clones at the plugin version
+  installed in the venv, `npm ci`, `npx tsc`). Gitignored `vendor/`
+  so we never commit 300+ npm packages.
+- Gitignored `test_data/*` (personal video content stays out of the
+  public repo); `.gitkeep` retained.
+
+**Decisions recorded**
+
+- **No residential proxy yet.** Not worth the $5–15/mo until we have
+  a use case beyond the user's own videos. Drive upload is the
+  primary input path.
+- **No cookies yet.** If we ever need to scrape non-creator-owned
+  YouTube content, we'll add a burner-account cookie jar at that
+  point, not pre-emptively.
+- **yt-dlp stays in the codebase** (`shorts_tool/downloader.py`) for
+  public-video edge cases, but is no longer the blessed input path
+  for the user's own content.
+
+**Exceptions / deferred work**
+
+- `shorts_tool/downloader.py` still assumes YouTube URLs. Needs a new
+  entry point that accepts a local file path (e.g. from `gdown`).
+  First item of the Phase 1 hygiene pass.
+- Still need to wipe stale `shorts.db` rows from the prior run
+  (video_id `WubpUUMoaUo`).
+- Still need to fix `/root/shorts-tool` paths in
+  `.claude/settings.local.json`.
+
 ### 2026-04-19 — Governance + audit
 
 **What we did**
@@ -109,8 +171,12 @@ local `faster-whisper` for Arabic ASR.
 
 ## Next session — recommended order
 
-1. Drop a 30-second Arabic sample into `test_data/`.
+1. ~~Drop a 30-second Arabic sample into `test_data/`.~~ Done.
+   `test_data/sample_linkedin_30s.mp4` is ready.
 2. Phase 1 cleanup pass:
+   - Add a local-file entry point to `shorts_tool/downloader.py`
+     (or a sibling `importer.py`) that just validates + records a
+     pre-existing mp4 as a "video" row. Drive → `gdown` → this.
    - Introduce `logging` module, wire `LOG_LEVEL` + `logs/shorts.log`.
    - Add `shorts_tool/storage.py` with `save_file` / `load_file` /
      `delete_file`.

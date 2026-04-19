@@ -19,3 +19,10 @@ logs/*
 # Local SQLite database
 *.db
 *.db-journal
+
+# Test-data video/audio content (personal material — do not commit)
+test_data/*
+!test_data/.gitkeep
+
+# Vendored third-party sources (re-fetch via scripts/setup_pot_provider.sh)
+vendor/
