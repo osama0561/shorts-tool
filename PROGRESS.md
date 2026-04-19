@@ -36,6 +36,10 @@ local `faster-whisper` for Arabic ASR.
 
 - Real `.env` still contains a live Gemini API key on disk. `.env` is
   gitignored so it won't push to GitHub, but user may want to rotate.
+- GitHub PAT was pasted into chat and saved to `.env` without
+  rotation. User acknowledged the risk and chose to proceed;
+  `GITHUB_TOKEN` placeholder added to `.env.example`. Strong
+  recommendation to rotate after the project stabilises.
 - Stale rows in `shorts.db` from the prior run (YouTube id
   `WubpUUMoaUo`) not deleted yet — `*.db` is gitignored, so harmless
   for the commit. Will be wiped before the Phase 1 smoke test.
