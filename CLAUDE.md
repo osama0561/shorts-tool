@@ -113,6 +113,10 @@ The build is phased. Move linearly. Do not jump ahead.
 If the user says "just ship it" / "skip planning" / "polish first
 before it works" — push back once and remind them of this order.
 
+**Session close rule:** Update `PROGRESS.md` at the END of every
+session with current state and next steps. This is non-negotiable —
+tmux sessions can die, `PROGRESS.md` is the durable record.
+
 ## Session kickoff checklist
 
 At the start of every session, Claude Code should:
