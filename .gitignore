@@ -1,0 +1,21 @@
+.env
+.claude/settings.local.json
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Runtime artifacts — keep the directories but not their contents
+inputs/*
+working/*
+outputs/*
+logs/*
+!inputs/.gitkeep
+!working/.gitkeep
+!outputs/.gitkeep
+!logs/.gitkeep
+
+# Local SQLite database
+*.db
+*.db-journal
