@@ -130,7 +130,7 @@ local `faster-whisper` for Arabic ASR.
 
 | Phase | Scope                                   | Status |
 |-------|-----------------------------------------|--------|
-| 1     | Download + transcribe                   | Code complete, not yet run end-to-end at this path |
+| 1     | Ingest + transcribe                     | ✅ Smoke test passed 2026-04-19 on `test_data/sample_linkedin_30s.mp4` — 75 Arabic words with word-level timing, 0.35x realtime on CPU |
 | 2     | Clip selection (Gemini picks hooks)     | Not started |
 | 3     | Arabic captions (ASS burn-in)           | Not started |
 | 4     | Logo overlays                           | Not started |
@@ -172,22 +172,19 @@ local `faster-whisper` for Arabic ASR.
 ## Next session — recommended order
 
 1. ~~Drop a 30-second Arabic sample into `test_data/`.~~ Done.
-   `test_data/sample_linkedin_30s.mp4` is ready.
-2. Phase 1 cleanup pass:
-   - Add a local-file entry point to `shorts_tool/downloader.py`
-     (or a sibling `importer.py`) that just validates + records a
-     pre-existing mp4 as a "video" row. Drive → `gdown` → this.
-   - Introduce `logging` module, wire `LOG_LEVEL` + `logs/shorts.log`.
-   - Add `shorts_tool/storage.py` with `save_file` / `load_file` /
-     `delete_file`.
-   - Add disk-space guard (<5 GB → abort).
-   - Prefix every ffmpeg call with `nice -n 10 ionice -c 3`.
-   - Wipe stale `shorts.db` rows and fix
-     `.claude/settings.local.json` paths.
-   - Commit (`refactor: Phase 1 engineering hygiene`).
-3. Phase 1 smoke test end-to-end on the sample.
-   Commit (`test: Phase 1 smoke test`).
-4. Phase 2 scaffold:
+2. ~~Phase 1 cleanup pass.~~ Done (commit `28f364b`).
+3. ~~Phase 1 smoke test end-to-end on the sample.~~ ✅ Passed
+   (75 Arabic words transcribed from 30-sec clip, word-level timing,
+   0.35x realtime on CPU).
+4. **Speed caveat for Phase 1** — 0.35x realtime means a 60-min lecture
+   takes ~3 hours of CPU to transcribe. Options to revisit:
+   - Drop to `large-v3-turbo` or `medium` model (faster, Arabic still
+     decent)
+   - Run on GPU occasionally (rent a Paperspace / RunPod box)
+   - Parallelise across audio chunks (whisper.cpp or faster-whisper
+     with `num_workers`)
+   Pick one only when the full-lecture wait becomes annoying.
+5. Phase 2 scaffold:
    - `shorts_tool/clip_selector.py` — Gemini 2.5 Pro → list of
      `{start_sec, end_sec, hook_summary}`.
    - `shorts_tool/cutter.py` — ffmpeg cut + 1080×1920 reframe.
